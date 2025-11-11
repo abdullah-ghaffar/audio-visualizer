@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Letter Audio Visualizer</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <h1>Letter Audio Visualizer</h1>
+
+  <input type="file" id="audioFile" accept="audio/*"><br><br>
+
+  <label for="letterSelect">Select Letter: </label>
+  <select id="letterSelect">
+    <script>
+      for (let i = 65; i <= 90; i++) {
+        document.write(`<option>${String.fromCharCode(i)}</option>`);
+      }
+    </script>
+  </select><br><br>
+
+  <button id="playBtn">Play & Visualize</button>
+
+  <canvas id="visualizer" width="800" height="600"></canvas>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

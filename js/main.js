@@ -93,7 +93,7 @@ function visualize(){
     const avgAmp = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
     const now = performance.now()/500;
 
-    // --- Path-following snake / particle flow ---
+    // --- Snake / particle flow ---
     for(let i=0;i<3;i++) spawnParticle(pathPoints, avgAmp);
     for(let i=particles.length-1;i>=0;i--){
       const p = particles[i];
@@ -113,7 +113,7 @@ function visualize(){
       p.pathIndex = nextIdx;
     }
 
-    // --- Beat-synced bars / waves inside letter ---
+    // --- Beat-synced bars / waves layers ---
     const barCount = 60;
     const letterLeft = canvas.width*0.05;
     const letterRight = canvas.width*0.95;
@@ -122,6 +122,7 @@ function visualize(){
     const letterWidth = letterRight-letterLeft;
     const letterHeight = letterBottom-letterTop;
 
+    // First layer: bottom -> top
     for(let i=0;i<barCount;i++){
       const freqIdx = Math.floor(i*(bufferLength/barCount));
       const amp = dataArray[freqIdx]/255;
@@ -129,6 +130,16 @@ function visualize(){
       const barHeight = amp*letterHeight;
       ctx.fillStyle = `hsla(${50+amp*50},100%,50%,0.7)`;
       ctx.fillRect(x,letterBottom-barHeight,letterWidth/barCount*0.8,barHeight);
+    }
+
+    // Second layer: top -> bottom (opposite flow)
+    for(let i=0;i<barCount;i++){
+      const freqIdx = Math.floor(i*(bufferLength/barCount));
+      const amp = dataArray[freqIdx]/255;
+      const x = letterLeft + (i/barCount)*letterWidth;
+      const barHeight = amp*letterHeight*0.8; // slightly smaller
+      ctx.fillStyle = `hsla(${30+amp*50},100%,50%,0.5)`; // color offset
+      ctx.fillRect(x,letterTop,letterWidth/barCount*0.8,barHeight);
     }
 
     // --- Apply letter mask ---

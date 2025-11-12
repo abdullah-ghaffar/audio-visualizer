@@ -10,6 +10,6 @@ canvas {
   display: block;
   margin: 20px auto;
   border-radius: 12px;
-  box-shadow: 0 0 30px rgba(255,255,255,0.2);
+  box-shadow: 0 0 60px rgba(255,255,255,0.2);
   background-color: #111;
 }

@@ -4,87 +4,137 @@ const letterSelect = document.getElementById('letterSelect');
 const canvas = document.getElementById('visualizer');
 const ctx = canvas.getContext('2d');
 
+const maskCanvas = document.createElement('canvas');
+maskCanvas.width = canvas.width;
+maskCanvas.height = canvas.height;
+const maskCtx = maskCanvas.getContext('2d');
+
 let audioContext;
 let analyser;
 let source;
 
+const MAX_PARTICLES = 400;
+const particles = [];
+
+function createParticle(x, y, size, speed, pathIndex, color, alpha){
+  return {x, y, size, speed, pathIndex, color, alpha};
+}
+
+function spawnParticle(pathPoints, avgAmp){
+  if(particles.length >= MAX_PARTICLES) return;
+  const idx = Math.floor(Math.random()*pathPoints.length);
+  const pnt = pathPoints[idx];
+  const offset = 5 + avgAmp/50;
+  const x = pnt.x + (Math.random()-0.5)*offset;
+  const y = pnt.y + (Math.random()-0.5)*offset;
+  const size = Math.random()*3 + 2 + avgAmp/80;
+  const speed = 0.5 + avgAmp/300;
+  const alpha = Math.max(0.5, Math.min(1, avgAmp/150));
+  const hue = Math.random()*30 + 30; // golden fire tone
+  const color = `hsl(${hue},100%,50%)`;
+  particles.push(createParticle(x,y,size,speed,idx,color,alpha));
+}
+
 playBtn.addEventListener('click', async () => {
   const file = audioFileInput.files[0];
   if (!file) return alert('Please upload an audio file.');
-
   const letter = letterSelect.value.toUpperCase();
 
-  // Create AudioContext
   audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  await audioContext.resume(); // ensure context running
+  await audioContext.resume();
 
-  // Decode audio
   const arrayBuffer = await file.arrayBuffer();
   const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-  // Create source and analyser
   source = audioContext.createBufferSource();
   source.buffer = audioBuffer;
 
   analyser = audioContext.createAnalyser();
-  analyser.fftSize = 512;
+  analyser.fftSize = 2048;
 
   source.connect(analyser);
   analyser.connect(audioContext.destination);
 
   source.start();
 
-  visualize(letter);
+  // Draw letter mask
+  maskCtx.clearRect(0,0,maskCanvas.width,maskCanvas.height);
+  const fontSize = canvas.height*0.9;
+  maskCtx.font = `${fontSize}px Arial`;
+  maskCtx.textAlign = 'center';
+  maskCtx.textBaseline = 'middle';
+  maskCtx.fillStyle = 'white';
+  maskCtx.fillText(letter, maskCanvas.width/2, maskCanvas.height/2);
+
+  // Extract letter interior path points
+  pathPoints.length = 0;
+  const imgData = maskCtx.getImageData(0,0,maskCanvas.width,maskCanvas.height).data;
+  for(let y=0; y<maskCanvas.height; y+=2){
+    for(let x=0; x<maskCanvas.width; x+=2){
+      const alpha = imgData[(y*maskCanvas.width + x)*4+3];
+      if(alpha>128) pathPoints.push({x,y});
+    }
+  }
+
+  visualize();
 });
 
-function visualize(letter) {
+const pathPoints = [];
+let snakeIndex = 0;
+
+function visualize(){
   const bufferLength = analyser.frequencyBinCount;
   const dataArray = new Uint8Array(bufferLength);
 
-  // Map letters A-Z to spectrum bins
-  const totalLetters = 26;
-  const letterIndex = letter.charCodeAt(0) - 65;
-  const binsPerLetter = bufferLength / totalLetters;
-  const startBin = Math.floor(letterIndex * binsPerLetter);
-  const endBin = Math.floor((letterIndex + 1) * binsPerLetter);
-
-  function draw() {
+  function draw(){
     requestAnimationFrame(draw);
     analyser.getByteFrequencyData(dataArray);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const avgAmp = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
+    const now = performance.now()/500;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw letter outline first
-    ctx.save();
-    ctx.font = `${canvas.height * 0.8}px Arial`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'white';
-    ctx.fillText(letter, canvas.width / 2, canvas.height / 2);
-
-    // Set clipping mask to letter
-    ctx.globalCompositeOperation = 'destination-in';
-    ctx.fillText(letter, canvas.width / 2, canvas.height / 2);
-
-    // Reset to normal for drawing bars
-    ctx.globalCompositeOperation = 'source-over';
-
-    // Draw bars inside letter shape
-    const selectedBins = dataArray.slice(startBin, endBin);
-    const barWidth = canvas.width / selectedBins.length;
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, '#00ffd5');
-    gradient.addColorStop(0.5, '#6a0dad');
-    gradient.addColorStop(1, '#ffb347');
-    ctx.fillStyle = gradient;
-
-    let x = 0;
-    for (let i = 0; i < selectedBins.length; i++) {
-      const barHeight = (selectedBins[i] / 255) * canvas.height * 0.8;
-      ctx.fillRect(x, canvas.height - barHeight, barWidth * 0.9, barHeight);
-      x += barWidth;
+    // --- Path-following snake / particle flow ---
+    for(let i=0;i<3;i++) spawnParticle(pathPoints, avgAmp);
+    for(let i=particles.length-1;i>=0;i--){
+      const p = particles[i];
+      const nextIdx = (p.pathIndex+1)%pathPoints.length;
+      const nextP = pathPoints[nextIdx];
+      p.x += (nextP.x - p.x)*p.speed;
+      p.y += (nextP.y - p.y)*p.speed;
+      p.alpha -= 0.003;
+      if(p.alpha<=0){particles.splice(i,1); continue;}
+      const gradient = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.size);
+      gradient.addColorStop(0,p.color.replace(')',`,${p.alpha})`));
+      gradient.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.size,0,Math.PI*2);
+      ctx.fill();
+      p.pathIndex = nextIdx;
     }
 
+    // --- Beat-synced bars / waves inside letter ---
+    const barCount = 60;
+    const letterLeft = canvas.width*0.05;
+    const letterRight = canvas.width*0.95;
+    const letterTop = canvas.height*0.05;
+    const letterBottom = canvas.height*0.95;
+    const letterWidth = letterRight-letterLeft;
+    const letterHeight = letterBottom-letterTop;
+
+    for(let i=0;i<barCount;i++){
+      const freqIdx = Math.floor(i*(bufferLength/barCount));
+      const amp = dataArray[freqIdx]/255;
+      const x = letterLeft + (i/barCount)*letterWidth;
+      const barHeight = amp*letterHeight;
+      ctx.fillStyle = `hsla(${50+amp*50},100%,50%,0.7)`;
+      ctx.fillRect(x,letterBottom-barHeight,letterWidth/barCount*0.8,barHeight);
+    }
+
+    // --- Apply letter mask ---
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(maskCanvas,0,0);
     ctx.restore();
   }
 
